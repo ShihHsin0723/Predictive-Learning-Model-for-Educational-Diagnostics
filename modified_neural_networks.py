@@ -57,7 +57,7 @@ class Decoder(nn.Module):
 
 
 class AutoEncoder(nn.Module):
-    def __init__(self, num_question, k=100, hidden_dim=60):
+    def __init__(self, num_question, k=200, hidden_dim=180):
         super(AutoEncoder, self).__init__()
         self.encoder = Encoder(num_question, k, hidden_dim)
         self.decoder = Decoder(k, num_question, hidden_dim)
@@ -98,9 +98,9 @@ def train(model, lr, train_data, zero_train_data, valid_data, num_epoch):
             optimizer.zero_grad()
             reconstructed, mu, log_var = model(inputs)
 
-            # Mask the target to exclude missing entries
-            nan_mask = np.isnan(train_data[user_id].unsqueeze(0).numpy())
-            target[nan_mask] = reconstructed[nan_mask]
+            nan_mask = torch.logical_not(torch.isnan(train_data[user_id].unsqueeze(0)))
+            reconstructed = reconstructed[nan_mask]
+            target = target[nan_mask]
 
             loss = vae_loss(reconstructed, target, mu, log_var)
             loss.backward()
@@ -116,7 +116,7 @@ def train(model, lr, train_data, zero_train_data, valid_data, num_epoch):
     plot_metrics(train_losses, validation_accs)
 
 
-def evaluate(model, train_data, valid_data):
+def evaluate(model, train_data, valid_data, threshold=0.5):
     """Evaluate the valid_data on the current model, including sensitivity and specificity.
 
     :param model: Module
@@ -138,7 +138,7 @@ def evaluate(model, train_data, valid_data):
         inputs = Variable(train_data[u]).unsqueeze(0)
         output, _, _ = model(inputs)
 
-        guess = output[0][valid_data["question_id"][i]].item() >= 0.50
+        guess = output[0][valid_data["question_id"][i]].item() >= threshold
         actual = valid_data["is_correct"][i]
 
         # Evaluate sensitivity and specificity
@@ -169,22 +169,29 @@ def evaluate(model, train_data, valid_data):
 
 def main():
     zero_train_matrix, train_matrix, valid_data, test_data = load_data()
-    lr = 0.0015
-    num_epoch = 50
-    k = 100
-    print(f"\nTraining AutoEncoder with k={k}")
-    model = AutoEncoder(num_question=train_matrix.shape[1], k=k)
+    lr = 0.0001
+    num_epoch = 30
+    k = 200
+    hidden_dim = 180
+    threshold = 0.52
+
+    model = AutoEncoder(num_question=train_matrix.shape[1], k=k, hidden_dim=hidden_dim)
     train(model, lr, train_matrix, zero_train_matrix, valid_data, num_epoch)
-    validation_acc, validation_sensitivity, validation_specificity = evaluate(model, zero_train_matrix, valid_data)
-    print(f"For validation set on k = {k}, validation accuracy = {validation_acc}, validation sensitivity = "
+    validation_acc, validation_sensitivity, validation_specificity = evaluate(model, zero_train_matrix, valid_data, threshold)
+    # if validation_acc > highest_acc:
+    #     highest_acc = validation_acc
+    #     best_lr = lr
+
+    print(f"Validation accuracy = {validation_acc}, validation sensitivity = "
           f"{validation_sensitivity}, validation specificity = {validation_specificity}.")
 
-    test_model = AutoEncoder(num_question=train_matrix.shape[1], k=k)
+    test_model = AutoEncoder(num_question=train_matrix.shape[1], k=k, hidden_dim=hidden_dim)
     train(test_model, lr, train_matrix, zero_train_matrix, valid_data, num_epoch)
-    test_acc, test_sensitivity, test_specificity = evaluate(test_model, zero_train_matrix, test_data)
-    print(f"For test set on k = {k}, test accuracy = {test_acc}, test sensitivity = {test_sensitivity}"
+    test_acc, test_sensitivity, test_specificity = evaluate(test_model, zero_train_matrix, test_data, threshold)
+    print(f"Test accuracy = {test_acc}, test sensitivity = {test_sensitivity}"
           f", test specificity = {test_specificity}.")
 
+    # print(f"Best lr is: {best_lr} with validation accuracy: {highest_acc}")
 
 def plot_metrics(train_losses, validation_accs):
     epochs = range(1, len(train_losses) + 1)
