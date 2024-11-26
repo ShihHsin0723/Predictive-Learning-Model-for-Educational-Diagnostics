@@ -20,9 +20,7 @@ def load_data(base_path="./data"):
     test_data = load_public_test_csv(base_path)
 
     zero_train_matrix = train_matrix.copy()
-    # Fill in the missing entries to 0.
     zero_train_matrix[np.isnan(train_matrix)] = 0
-    # Change to Float Tensor for PyTorch.
     zero_train_matrix = torch.FloatTensor(zero_train_matrix)
     train_matrix = torch.FloatTensor(train_matrix)
 
@@ -51,7 +49,7 @@ class Decoder(nn.Module):
 
     def forward(self, z):
         h = torch.relu(self.fc1(z))
-        raw_output = torch.clamp(self.fc2(h), min=-10, max=10)  # avoid out of range raw output
+        raw_output = torch.clamp(self.fc2(h), min=-10, max=10)
         x_hat = torch.sigmoid(raw_output)
         return x_hat
 
@@ -108,7 +106,7 @@ def train(model, lr, train_data, zero_train_data, valid_data, num_epoch):
             optimizer.step()
 
         train_losses.append(train_loss)
-        valid_acc, _, _ = evaluate(model, zero_train_data, valid_data)
+        valid_acc = evaluate(model, zero_train_data, valid_data)
         validation_accs.append(valid_acc)
 
         print(f"Epoch: {epoch}, Train Loss: {train_loss}, Validation Accuracy: {valid_acc}")
@@ -117,22 +115,10 @@ def train(model, lr, train_data, zero_train_data, valid_data, num_epoch):
 
 
 def evaluate(model, train_data, valid_data, threshold=0.5):
-    """Evaluate the valid_data on the current model, including sensitivity and specificity.
-
-    :param model: Module
-    :param train_data: 2D FloatTensor
-    :param valid_data: A dictionary {user_id: list, question_id: list, is_correct: list}
-    :return: accuracy, sensitivity, specificity
-    """
-    # Tell PyTorch you are evaluating the model.
     model.eval()
 
     total = 0
     correct = 0
-    true_positive = 0
-    false_positive = 0
-    true_negative = 0
-    false_negative = 0
 
     for i, u in enumerate(valid_data["user_id"]):
         inputs = Variable(train_data[u]).unsqueeze(0)
@@ -141,30 +127,12 @@ def evaluate(model, train_data, valid_data, threshold=0.5):
         guess = output[0][valid_data["question_id"][i]].item() >= threshold
         actual = valid_data["is_correct"][i]
 
-        # Evaluate sensitivity and specificity
         if guess == actual:
             correct += 1
-            if guess:
-                true_positive += 1
-            else:
-                true_negative += 1
-        else:
-            if guess:
-                false_positive += 1
-            else:
-                false_negative += 1
         total += 1
 
-    # Accuracy
     accuracy = correct / float(total)
-
-    # Sensitivity
-    sensitivity = true_positive / float(true_positive + false_negative) if (true_positive + false_negative) > 0 else 0.0
-
-    # Specificity
-    specificity = true_negative / float(true_negative + false_positive) if (true_negative + false_positive) > 0 else 0.0
-
-    return accuracy, sensitivity, specificity
+    return accuracy
 
 
 def main():
@@ -173,48 +141,38 @@ def main():
     num_epoch = 30
     k = 200
     hidden_dim = 180
-    threshold = 0.52
+    threshold = 0.50
 
     model = AutoEncoder(num_question=train_matrix.shape[1], k=k, hidden_dim=hidden_dim)
     train(model, lr, train_matrix, zero_train_matrix, valid_data, num_epoch)
-    validation_acc, validation_sensitivity, validation_specificity = evaluate(model, zero_train_matrix, valid_data, threshold)
-    # if validation_acc > highest_acc:
-    #     highest_acc = validation_acc
-    #     best_lr = lr
+    validation_acc = evaluate(model, zero_train_matrix, valid_data, threshold)
 
-    print(f"Validation accuracy = {validation_acc}, validation sensitivity = "
-          f"{validation_sensitivity}, validation specificity = {validation_specificity}.")
+    print(f"Validation accuracy = {validation_acc}.")
 
     test_model = AutoEncoder(num_question=train_matrix.shape[1], k=k, hidden_dim=hidden_dim)
     train(test_model, lr, train_matrix, zero_train_matrix, valid_data, num_epoch)
-    test_acc, test_sensitivity, test_specificity = evaluate(test_model, zero_train_matrix, test_data, threshold)
-    print(f"Test accuracy = {test_acc}, test sensitivity = {test_sensitivity}"
-          f", test specificity = {test_specificity}.")
+    test_acc = evaluate(test_model, zero_train_matrix, test_data, threshold)
+    print(f"Test accuracy = {test_acc}.")
 
-    # print(f"Best lr is: {best_lr} with validation accuracy: {highest_acc}")
 
 def plot_metrics(train_losses, validation_accs):
     epochs = range(1, len(train_losses) + 1)
 
-    # Plot training loss
     plt.figure(figsize=(10, 5))
     plt.plot(epochs, train_losses, label="Training Loss")
     plt.xlabel("Epoch")
     plt.ylabel("Loss")
     plt.title("Training Loss Over Epochs")
     plt.legend()
-    plt.grid(True)
     plt.savefig("training_loss.png")
     plt.show()
 
-    # Plot validation accuracy
     plt.figure(figsize=(10, 5))
     plt.plot(epochs, validation_accs, label="Validation Accuracy", color="green")
     plt.xlabel("Epoch")
     plt.ylabel("Accuracy")
     plt.title("Validation Accuracy Over Epochs")
     plt.legend()
-    plt.grid(True)
     plt.savefig("validation_accuracy.png")
     plt.show()
 
