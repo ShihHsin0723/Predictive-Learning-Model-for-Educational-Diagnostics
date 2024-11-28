@@ -1,4 +1,5 @@
 import numpy as np
+from matplotlib import pyplot as plt
 from torch.autograd import Variable
 import torch.nn as nn
 import torch.nn.functional as F
@@ -73,11 +74,13 @@ class AutoEncoder(nn.Module):
         # Implement the function as described in the docstring.             #
         # Use sigmoid activations for f and g.                              #
         #####################################################################
-        out = inputs
+        # out = inputs
+        encoded = torch.sigmoid(self.g(inputs))
+        decoded = torch.sigmoid(self.h(encoded))
         #####################################################################
         #                       END OF YOUR CODE                            #
         #####################################################################
-        return out
+        return decoded
 
 
 def train(model, lr, lamb, train_data, zero_train_data, valid_data, num_epoch):
@@ -102,6 +105,9 @@ def train(model, lr, lamb, train_data, zero_train_data, valid_data, num_epoch):
     optimizer = optim.SGD(model.parameters(), lr=lr)
     num_student = train_data.shape[0]
 
+    train_losses = []
+    validation_accs = []
+
     for epoch in range(0, num_epoch):
         train_loss = 0.0
 
@@ -116,11 +122,16 @@ def train(model, lr, lamb, train_data, zero_train_data, valid_data, num_epoch):
             nan_mask = np.isnan(train_data[user_id].unsqueeze(0).numpy())
             target[nan_mask] = output[nan_mask]
 
-            loss = torch.sum((output - target) ** 2.0)
+            # loss = torch.sum((output - target) ** 2.0)
+            loss = torch.sum((output - target) ** 2.0) + 0.5 * lamb * model.get_weight_norm()
             loss.backward()
 
             train_loss += loss.item()
             optimizer.step()
+
+        train_losses.append(train_loss)
+        valid_acc = evaluate(model, zero_train_data, valid_data)
+        validation_accs.append(valid_acc)
 
         valid_acc = evaluate(model, zero_train_data, valid_data)
         print(
@@ -128,6 +139,25 @@ def train(model, lr, lamb, train_data, zero_train_data, valid_data, num_epoch):
                 epoch, train_loss, valid_acc
             )
         )
+
+    # Q3 d) Report and plot the training and validation objectives
+    # epochs = range(1, num_epoch + 1)
+    # plt.show()
+    # plt.plot(epochs, train_losses, label="Training Loss", color="blue")
+    # plt.xlabel("Epoch")
+    # plt.ylabel("Loss")
+    # plt.title("Epoch vs. Training Loss")
+    # plt.legend()
+    # plt.savefig("epoch_vs_training_loss.png")
+    # plt.show()
+    #
+    # plt.plot(epochs, validation_accs, label="Validation Accuracy", color="green")
+    # plt.xlabel("Epoch")
+    # plt.ylabel("Accuracy")
+    # plt.title("Epoch vs. Validation Accuracy")
+    # plt.legend()
+    # plt.savefig("epoch_vs_valid_acc.png")
+    # plt.show()
     #####################################################################
     #                       END OF YOUR CODE                            #
     #####################################################################
@@ -167,17 +197,77 @@ def main():
     # Try out 5 different k and select the best k using the             #
     # validation set.                                                   #
     #####################################################################
-    # Set model hyperparameters.
-    k = None
-    model = None
 
     # Set optimization hyperparameters.
-    lr = None
-    num_epoch = None
-    lamb = None
+    lr = 0.01
+    num_epoch = 30
+    lamb = 0.001
 
+    # Q3 c) - commented out since we've found the best k and parameters to use.
+    # Set model hyperparameters.
+    # k_values = [10, 50, 100, 200, 500]
+    # best_k = None
+    # best_valid_acc = 0
+    # results = {}
+    #
+    # for k in k_values:
+    #     model = AutoEncoder(num_question=train_matrix.shape[1], k=k)
+    #     train(model, lr, lamb, train_matrix, zero_train_matrix, valid_data, num_epoch)
+    #     valid_acc = evaluate(model, zero_train_matrix, valid_data)
+    #     results[k] = valid_acc
+    #
+    #     if valid_acc > best_valid_acc:
+    #         best_k = k
+    #         best_valid_acc = valid_acc
+    #
+    #     print(f"k = {k}, validation accuarcy = {valid_acc}\n")
+    #
+    # print(f"The best k: {best_k} with validation accuracy: {best_valid_acc}")
+
+    # this is the model for the best k
+    best_k = 100
+    model = AutoEncoder(num_question=train_matrix.shape[1], k=best_k)
     train(model, lr, lamb, train_matrix, zero_train_matrix, valid_data, num_epoch)
-    # Next, evaluate your network on validation/test data
+
+    # Q3 d)
+    # For test set
+    test_model = AutoEncoder(num_question=train_matrix.shape[1], k=best_k)
+    train(test_model, lr, lamb, train_matrix, zero_train_matrix, valid_data, num_epoch)
+    test_acc = evaluate(test_model, zero_train_matrix, test_data)
+    print(f"For test set on k = {best_k}, test accuracy = {test_acc}.")
+
+    # Q3 e) tuning regularization term - commented out since we've found the best lambda value to use.
+    # best_lamb = None
+    # best_valid_acc = 0
+    # results = {}
+    #
+    # lamb_list = [0.001, 0.01, 0.1, 1]
+    # for lamb in lamb_list:
+    #     model = AutoEncoder(num_question=train_matrix.shape[1], k=best_k)
+    #     train(model, lr, lamb, train_matrix, zero_train_matrix, valid_data, num_epoch)
+    #     valid_acc = evaluate(model, zero_train_matrix, valid_data)
+    #     results[lamb] = valid_acc
+    #
+    #     if valid_acc > best_valid_acc:
+    #         best_lamb = lamb
+    #         best_valid_acc = valid_acc
+    #
+    #     print(f"lambda = {lamb}, validation accuarcy = {valid_acc}\n")
+    #
+    # print(f"The best lambda: {best_lamb} with validation accuracy: {best_valid_acc}")
+
+    # this is the model for the best lambda
+    best_lamb = 0.001
+    model = AutoEncoder(num_question=train_matrix.shape[1], k=best_k)
+    train(model, lr, best_lamb, train_matrix, zero_train_matrix, valid_data, num_epoch)
+    valid_acc = evaluate(model, zero_train_matrix, valid_data)
+    print(f"For validation set on lambda = {best_lamb}, validation accuarcy = {valid_acc}\n")
+
+    # getting the testing accuraccies:
+    test_model = AutoEncoder(num_question=train_matrix.shape[1], k=best_k)
+    train(test_model, lr, best_lamb, train_matrix, zero_train_matrix, valid_data, num_epoch)
+    test_acc = evaluate(test_model, zero_train_matrix, test_data)
+    print(f"For test set on lambda = {best_lamb}, test accuracy = {test_acc}.")
 
     #####################################################################
     #                       END OF YOUR CODE                            #
